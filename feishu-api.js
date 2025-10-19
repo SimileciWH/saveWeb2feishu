@@ -44,14 +44,14 @@ class FeishuAPI {
         let tableId = null;
 
         // 优先匹配 table 参数
-        let tableIdMatch = url.search.match(/[?&]table=([a-zA-Z0-9]+)/);
+        let tableIdMatch = urlObj.search.match(/[?&]table=([a-zA-Z0-9]+)/);
         if (tableIdMatch) {
           tableId = tableIdMatch[1];
         }
 
         // 如果没有找到，尝试其他可能的参数名
         if (!tableId) {
-          tableIdMatch = url.search.match(/[?&]tbl=([a-zA-Z0-9]+)/);
+          tableIdMatch = urlObj.search.match(/[?&]tbl=([a-zA-Z0-9]+)/);
           if (tableIdMatch) {
             tableId = tableIdMatch[1];
           }
