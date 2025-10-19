@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h2>🌐 网页保存到飞书</h2>
+    </div>
+
+    <div class="section">
+      <label>📄 页面标题:</label>
+      <div class="title-display" id="pageTitle">加载中...</div>
+    </div>
+
+    <div class="section">
+      <label>📝 备注:</label>
+      <textarea id="notes" placeholder="请输入备注信息..."></textarea>
+    </div>
+
+    <div class="section">
+      <label>🏷️ 标签:</label>
+      <div class="tags-container">
+        <input type="text" id="tags" placeholder="输入标签，多个标签用逗号分隔">
+        <div class="tags-suggestions" id="tagsSuggestions"></div>
+      </div>
+      <small>💡 提示: 多个标签用逗号分隔</small>
+    </div>
+
+    <div class="section">
+      <label>📊 飞书表格:</label>
+      <div class="table-container">
+        <select id="tableSelect">
+          <option value="">选择表格...</option>
+          <option value="new">+ 添加新表格链接</option>
+        </select>
+        <div class="new-table-input" id="newTableInput" style="display:none;">
+          <input type="text" id="newTableUrl" placeholder="粘贴飞书多维表格链接">
+          <div class="url-examples">
+            <small>📋 支持的链接格式示例:</small>
+            <small>• https://xxx.feishu.cn/base/DeI4by0Thac5m4sGzSJcwRt5nVb?table=tblNg6iVyvBIF2FM</small>
+          </div>
+          <button id="testUrlBtn" class="test-url-btn">🔍 测试解析</button>
+          <div class="url-debug-info" id="urlDebugInfo" style="display:none;">
+            <h4>URL解析结果:</h4>
+            <div id="debugContent"></div>
+          </div>
+          <input type="text" id="newTableName" placeholder="表格名称（可选）">
+          <button id="addTableBtn" class="add-table-btn">添加表格</button>
+        </div>
+      </div>
+    </div>
+
+    <button id="saveBtn" class="save-btn">💾 保存到飞书</button>
+
+    <div class="status" id="status">⏳ 状态: 准备就绪</div>
+
+    <!-- 历史记录 -->
+    <div class="history-section">
+      <label>📋 最近保存:</label>
+      <div class="history-list" id="historyList"></div>
+    </div>
+  </div>
+
+  <script src="feishu-api.js"></script>
+  <script src="storage.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "网页保存到飞书",
+  "version": "1.0",
+  "description": "一键保存当前网页到飞书多维表格",
+  "permissions": [
+    "activeTab",
+    "storage"
+  ],
+  "host_permissions": [
+    "https://*.feishu.cn/*",
+    "https://*.feishu.com/*",
+    "https://open.feishu.cn/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "保存到飞书",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"]
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+# 开发调试文件
+create_*.py
+create_*.sh
+*.log
+.DS_Store
+
+# 临时文件
+*.tmp
+*.temp
+*~
+
+# IDE文件
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node.js (如果以后添加)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Chrome扩展打包文件
+dist/
+build/
+*.crx
+*.zip
