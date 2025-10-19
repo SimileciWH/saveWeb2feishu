@@ -14,6 +14,9 @@ document.addEventListener('DOMContentLoaded', function() {
   const testUrlBtn = document.getElementById('testUrlBtn');
   const urlDebugInfo = document.getElementById('urlDebugInfo');
   const debugContent = document.getElementById('debugContent');
+  const checkPermBtn = document.getElementById('checkPermBtn');
+  const permCheckInfo = document.getElementById('permCheckInfo');
+  const permContent = document.getElementById('permContent');
   const saveBtn = document.getElementById('saveBtn');
   const statusDiv = document.getElementById('status');
   const historyList = document.getElementById('historyList');
@@ -111,6 +114,7 @@ document.addEventListener('DOMContentLoaded', function() {
       newTableInput.style.display = 'none';
       clearNewTableForm();
       urlDebugInfo.style.display = 'none';
+      permCheckInfo.style.display = 'none';
     }
   });
 
@@ -134,6 +138,29 @@ document.addEventListener('DOMContentLoaded', function() {
     // 延迟一下让UI更新
     setTimeout(() => {
       testUrlParsing(url);
+    }, 100);
+  });
+
+  // 权限检查按钮
+  checkPermBtn.addEventListener('click', async function() {
+    const url = newTableUrl.value.trim();
+    if (!url) {
+      showPermResult({
+        success: false,
+        message: '请先输入飞书表格链接'
+      });
+      return;
+    }
+
+    // 显示加载状态
+    showPermResult({
+      success: null,
+      message: '正在检查权限...'
+    });
+
+    // 延迟一下让UI更新
+    setTimeout(() => {
+      checkPermissions(url);
     }, 100);
   });
 
@@ -181,6 +208,7 @@ document.addEventListener('DOMContentLoaded', function() {
         newTableInput.style.display = 'none';
         tableSelect.value = '';
         urlDebugInfo.style.display = 'none';
+        permCheckInfo.style.display = 'none';
       } else {
         updateStatus(`❌ 连接失败: ${testResult.message}`, 'error');
       }
@@ -458,5 +486,44 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 
     debugContent.innerHTML = html;
+  }
+
+  // 权限检查函数
+  async function checkPermissions(url) {
+    try {
+      const result = await window.feishuAPI.checkPermissions(url);
+      showPermResult(result);
+    } catch (error) {
+      showPermResult({
+        success: false,
+        message: `权限检查出错: ${error.message}`
+      });
+    }
+  }
+
+  // 显示权限检查结果
+  function showPermResult(result) {
+    permCheckInfo.style.display = 'block';
+
+    let html = '';
+
+    if (result.success === true) {
+      html += `<div class="perm-item perm-success">✅ ${result.message}</div>`;
+    } else if (result.success === false) {
+      html += `<div class="perm-item perm-error">❌ ${result.message}</div>`;
+    } else {
+      html += `<div class="perm-item">⏳ ${result.message}</div>`;
+    }
+
+    // 添加权限类型说明
+    if (result.type) {
+      const typeText = {
+        'read_permission': '读取权限检查失败',
+        'write_permission': '写入权限检查失败'
+      };
+      html += `<div class="perm-item">🔍 检查类型: ${typeText[result.type] || result.type}</div>`;
+    }
+
+    permContent.innerHTML = html;
   }
 });
