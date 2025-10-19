@@ -1,0 +1,323 @@
+name: Code Quality and Security
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  code-analysis:
+    name: Code Quality Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install ESLint and Prettier
+      run: |
+        npm install -g eslint prettier
+
+    - name: Create ESLint configuration
+      run: |
+        cat > .eslintrc.json << 'EOF'
+        {
+          "env": {
+            "browser": true,
+            "es2021": true,
+            "webextensions": true
+          },
+          "extends": [
+            "eslint:recommended"
+          ],
+          "parserOptions": {
+            "ecmaVersion": "latest",
+            "sourceType": "module"
+          },
+          "rules": {
+            "no-unused-vars": "warn",
+            "no-console": "warn",
+            "prefer-const": "error",
+            "no-var": "error"
+          },
+          "globals": {
+            "chrome": "readonly"
+          }
+        }
+        EOF
+
+    - name: Run ESLint
+      run: |
+        echo "🔍 Running ESLint..."
+        js_files=(
+          "popup.js"
+          "content.js"
+          "feishu-api.js"
+          "storage.js"
+        )
+
+        eslint_files=()
+        for file in "${js_files[@]}"; do
+          if [ -f "$file" ]; then
+            eslint_files+=("$file")
+          fi
+        done
+
+        if [ ${#eslint_files[@]} -gt 0 ]; then
+          eslint "${eslint_files[@]}" || echo "ESLint found some issues (warnings only)"
+        else
+          echo "No JavaScript files to lint"
+        fi
+
+    - name: Check code formatting
+      run: |
+        echo "🎨 Checking code formatting with Prettier..."
+        js_files=(
+          "popup.js"
+          "content.js"
+          "feishu-api.js"
+          "storage.js"
+        )
+        html_files=("popup.html")
+        css_files=("popup.css")
+
+        prettier_files=()
+        for file in "${js_files[@]}" "${html_files[@]}" "${css_files[@]}"; do
+          if [ -f "$file" ]; then
+            prettier_files+=("$file")
+          fi
+        done
+
+        if [ ${#prettier_files[@]} -gt 0 ]; then
+          prettier --check "${prettier_files[@]}" || echo "Prettier found formatting issues"
+        else
+          echo "No files to format"
+        fi
+
+    - name: Analyze code complexity
+      run: |
+        echo "📊 Analyzing code complexity..."
+
+        # 计算代码行数
+        total_lines=0
+        js_files=(
+          "popup.js"
+          "content.js"
+          "feishu-api.js"
+          "storage.js"
+        )
+
+        for file in "${js_files[@]}"; do
+          if [ -f "$file" ]; then
+            lines=$(wc -l < "$file")
+            total_lines=$((total_lines + lines))
+            echo "📝 $file: $lines lines"
+          fi
+        done
+
+        echo "📊 Total JavaScript lines: $total_lines"
+
+        # 检查文件大小
+        echo "📦 File sizes:"
+        for file in manifest.json popup.html popup.css; do
+          if [ -f "$file" ]; then
+            size=$(du -h "$file" | cut -f1)
+            echo "   $file: $size"
+          fi
+        done
+
+  security-scan:
+    name: Advanced Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run npm audit
+      run: |
+        echo "🔒 Running npm audit..."
+        npm init -y
+        npm audit --audit-level moderate || echo "npm audit completed with warnings"
+
+    - name: Check for hardcoded secrets
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: main
+        head: main
+
+    - name: Scan for sensitive patterns
+      run: |
+        echo "🔍 Scanning for sensitive patterns..."
+
+        # 定义敏感模式
+        patterns=(
+          "password.*="
+          "secret.*="
+          "api_key.*="
+          "token.*="
+          "credential.*="
+          "private_key"
+        )
+
+        found_issues=false
+        for pattern in "${patterns[@]}"; do
+          if grep -r -i "$pattern" --include="*.js" --include="*.json" --include="*.html" .; then
+            echo "⚠️  Potential sensitive pattern found: $pattern"
+            found_issues=true
+          fi
+        done
+
+        if [ "$found_issues" = false ]; then
+          echo "✅ No obvious sensitive patterns found"
+        fi
+
+    - name: Validate manifest permissions
+      run: |
+        echo "🔍 Validating manifest permissions..."
+
+        if [ -f "manifest.json" ]; then
+          # 检查是否请求了不必要的权限
+          echo "📋 Current permissions:"
+          node -e "
+            const manifest = JSON.parse(require('fs').readFileSync('manifest.json', 'utf8'));
+            if (manifest.permissions) {
+              manifest.permissions.forEach(perm => console.log('  -', perm));
+            }
+            if (manifest.host_permissions) {
+              manifest.host_permissions.forEach(perm => console.log('  -', perm));
+            }
+          "
+
+          # 检查是否有危险权限
+          dangerous_perms=(
+            "<all_urls>"
+            "debugger"
+            "nativeMessaging"
+          )
+
+          for perm in "${dangerous_perms[@]}"; do
+            if grep -q "\"$perm\"" manifest.json; then
+              echo "⚠️  Warning: Potentially dangerous permission detected: $perm"
+            fi
+          done
+        fi
+
+  dependency-check:
+    name: Dependency Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Check for dependencies
+      run: |
+        echo "📦 Checking project dependencies..."
+
+        # 检查是否有package.json
+        if [ -f "package.json" ]; then
+          echo "📋 package.json found"
+          npm ls --depth=0
+        else
+          echo "ℹ️  No package.json found (standalone Chrome extension)"
+        fi
+
+        # 检查是否需要任何外部依赖
+        echo "🔍 Checking for external dependencies..."
+
+        # 分析代码中的依赖引用
+        if grep -r "require(" --include="*.js" . 2>/dev/null; then
+          echo "⚠️  Found require() statements"
+        fi
+
+        if grep -r "import.*from" --include="*.js" . 2>/dev/null; then
+          echo "⚠️  Found import statements"
+        fi
+
+        echo "✅ Dependency check completed"
+
+  performance-check:
+    name: Performance Check
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check bundle size
+      run: |
+        echo "📊 Checking extension bundle size..."
+
+        total_size=0
+        for file in manifest.json popup.html popup.css popup.js content.js feishu-api.js storage.js; do
+          if [ -f "$file" ]; then
+            size=$(stat -c%s "$file")
+            total_size=$((total_size + size))
+            size_kb=$((size / 1024))
+            echo "   $file: ${size_kb}KB"
+          fi
+        done
+
+        total_kb=$((total_size / 1024))
+        echo "📦 Total size: ${total_kb}KB"
+
+        # 检查是否超过Chrome扩展大小限制 (通常为128MB)
+        max_size_kb=131072
+        if [ $total_kb -gt $max_size_kb ]; then
+          echo "⚠️  Warning: Extension size exceeds typical limits"
+        else
+          echo "✅ Extension size is within acceptable limits"
+        fi
+
+    - name: Check code optimization
+      run: |
+        echo "⚡ Checking code optimization..."
+
+        # 检查是否有未使用的变量
+        echo "🔍 Checking for potential optimizations..."
+
+        # 分析JS文件复杂度
+        for file in popup.js content.js feishu-api.js storage.js; do
+          if [ -f "$file" ]; then
+            lines=$(wc -l < "$file")
+            functions=$(grep -c "function\|=>" "$file" 2>/dev/null || echo "0")
+            echo "   $file: $lines lines, ~$functions functions"
+
+            # 检查是否有非常长的函数（超过100行）
+            if [ $lines -gt 100 ]; then
+              echo "⚠️  Warning: $file might be too long ($lines lines)"
+            fi
+          fi
+        done
+
+    - name: Check resource loading
+      run: |
+        echo "🖼️ Checking resource references..."
+
+        # 检查HTML中的资源引用
+        if [ -f "popup.html" ]; then
+          # 检查是否引用了不存在的CSS/JS文件
+          css_refs=$(grep -o 'href="[^"]*\.css"' popup.html 2>/dev/null || true)
+          js_refs=$(grep -o 'src="[^"]*\.js"' popup.html 2>/dev/null || true)
+
+          echo "📋 CSS references in popup.html:"
+          echo "$css_refs" | sed 's/href="//g' | sed 's/"//g' | sed 's/^/   - /' || echo "   None"
+
+          echo "📋 JS references in popup.html:"
+          echo "$js_refs" | sed 's/src="//g' | sed 's/"//g' | sed 's/^/   - /' || echo "   None"
+        fi

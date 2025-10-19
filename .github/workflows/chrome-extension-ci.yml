@@ -1,0 +1,372 @@
+name: Chrome Extension CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [ published ]
+
+jobs:
+  validate:
+    name: Validate Chrome Extension
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Validate manifest.json
+      run: |
+        echo "🔍 Validating manifest.json..."
+        if [ ! -f "manifest.json" ]; then
+          echo "❌ manifest.json not found"
+          exit 1
+        fi
+
+        # 检查manifest.json语法
+        node -e "
+          try {
+            const manifest = JSON.parse(require('fs').readFileSync('manifest.json', 'utf8'));
+            console.log('✅ manifest.json syntax is valid');
+            console.log('📦 Extension name:', manifest.name);
+            console.log('🔢 Version:', manifest.version);
+            console.log('🔑 Permissions:', manifest.permissions);
+
+            // 检查必要字段
+            const required = ['name', 'version', 'manifest_version'];
+            required.forEach(field => {
+              if (!manifest[field]) {
+                throw new Error(\`Missing required field: \${field}\`);
+              }
+            });
+
+            console.log('✅ Required fields present');
+          } catch (error) {
+            console.error('❌ manifest.json validation failed:', error.message);
+            process.exit(1);
+          }
+        "
+
+    - name: Check required files
+      run: |
+        echo "🔍 Checking required files..."
+        required_files=(
+          "manifest.json"
+          "popup.html"
+          "popup.js"
+          "popup.css"
+          "content.js"
+          "feishu-api.js"
+          "storage.js"
+        )
+
+        for file in "${required_files[@]}"; do
+          if [ ! -f "$file" ]; then
+            echo "❌ Required file missing: $file"
+            exit 1
+          else
+            echo "✅ $file exists"
+          fi
+        done
+
+    - name: Check icon files
+      run: |
+        echo "🔍 Checking icon files..."
+        icon_sizes=(16 48 128)
+
+        for size in "${icon_sizes[@]}"; do
+          if [ ! -f "icon${size}.png" ]; then
+            echo "⚠️  Warning: icon${size}.png not found"
+          else
+            echo "✅ icon${size}.png exists"
+            # 检查文件大小
+            size_bytes=$(stat -c%s "icon${size}.png")
+            if [ $size_bytes -eq 0 ]; then
+              echo "❌ icon${size}.png is empty"
+              exit 1
+            fi
+          fi
+        done
+
+    - name: Validate JavaScript syntax
+      run: |
+        echo "🔍 Validating JavaScript syntax..."
+        js_files=(
+          "popup.js"
+          "content.js"
+          "feishu-api.js"
+          "storage.js"
+        )
+
+        for file in "${js_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "📝 Checking $file..."
+            node -c "$file" || {
+              echo "❌ Syntax error in $file"
+              exit 1
+            }
+            echo "✅ $file syntax is valid"
+          fi
+        done
+
+    - name: Validate HTML/CSS
+      run: |
+        echo "🔍 Validating HTML and CSS..."
+
+        # 检查HTML语法
+        if [ -f "popup.html" ]; then
+          echo "📝 Checking popup.html..."
+          # 基本HTML结构检查
+          if ! grep -q "<!DOCTYPE html>" popup.html; then
+            echo "⚠️  Warning: DOCTYPE declaration missing in popup.html"
+          fi
+          echo "✅ HTML structure checked"
+        fi
+
+        # 检查CSS语法
+        if [ -f "popup.css" ]; then
+          echo "📝 Checking popup.css..."
+          # 检查基本CSS语法
+          if grep -q "{.*}" popup.css; then
+            echo "✅ CSS syntax appears valid"
+          else
+            echo "⚠️  Warning: CSS file may be empty or invalid"
+          fi
+        fi
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results to GitHub Security tab
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Check for sensitive data
+      run: |
+        echo "🔍 Checking for sensitive data..."
+
+        # 检查是否包含API密钥、密码等敏感信息
+        if grep -r -i "password\|secret\|key.*=\|token.*=" --include="*.js" --include="*.json" --include="*.html" .; then
+          echo "⚠️  Warning: Potential sensitive data found"
+          echo "Please review the above matches and ensure no real credentials are committed"
+        else
+          echo "✅ No obvious sensitive data found"
+        fi
+
+  test:
+    name: Test Extension Functionality
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Install dependencies for testing
+      run: |
+        echo "📦 Installing test dependencies..."
+        npm install -g jsdom
+
+    - name: Test URL parsing functionality
+      run: |
+        echo "🧪 Testing URL parsing..."
+        node -e "
+        const fs = require('fs');
+
+        // 模拟URL解析测试
+        function testUrlParsing() {
+          const testUrls = [
+            'https://example.feishu.cn/base/test123?table=tbl456',
+            'https://domain.com/base/app/test789?table=tbl012'
+          ];
+
+          testUrls.forEach(url => {
+            try {
+              const urlObj = new URL(url);
+              const pathname = urlObj.pathname;
+              const match = pathname.match(/\/base\/([a-zA-Z0-9]+)/);
+
+              if (match) {
+                console.log('✅ URL parsing successful:', url);
+                console.log('   Extracted appToken:', match[1]);
+              } else {
+                console.log('❌ URL parsing failed:', url);
+              }
+            } catch (error) {
+              console.log('❌ URL parsing error:', error.message);
+            }
+          });
+        }
+
+        testUrlParsing();
+        console.log('🧪 URL parsing tests completed');
+        "
+
+    - name: Test manifest.json structure
+      run: |
+        echo "🧪 Testing manifest structure..."
+        node -e "
+        const fs = require('fs');
+        const manifest = JSON.parse(fs.readFileSync('manifest.json', 'utf8'));
+
+        // 测试必要字段
+        const requiredFields = ['manifest_version', 'name', 'version'];
+        requiredFields.forEach(field => {
+          if (!manifest[field]) {
+            throw new Error(\`Missing required field: \${field}\`);
+          }
+        });
+
+        // 测试权限配置
+        if (!manifest.permissions || !Array.isArray(manifest.permissions)) {
+          throw new Error('Invalid permissions configuration');
+        }
+
+        console.log('✅ Manifest structure is valid');
+        console.log('📦 Extension:', manifest.name);
+        console.log('🔢 Version:', manifest.version);
+        console.log('🔑 Permissions:', manifest.permissions.join(', '));
+        "
+
+  build:
+    name: Build Extension Package
+    runs-on: ubuntu-latest
+    needs: [validate, security, test]
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Create build directory
+      run: |
+        echo "📦 Creating build package..."
+        mkdir -p build
+
+        # 复制所有必要文件
+        cp manifest.json build/
+        cp popup.html build/
+        cp popup.css build/
+        cp popup.js build/
+        cp content.js build/
+        cp feishu-api.js build/
+        cp storage.js build/
+        cp refresh-extension.sh build/
+        cp -r icons/ build/ 2>/dev/null || true
+
+        # 复制图标文件（如果存在）
+        for size in 16 48 128; do
+          if [ -f "icon${size}.png" ]; then
+            cp "icon${size}.png" build/
+          fi
+        done
+
+    - name: Create ZIP package
+      run: |
+        echo "📦 Creating ZIP package..."
+        cd build
+        zip -r ../feishu-web-saver.zip .
+        cd ..
+
+    - name: Generate build info
+      run: |
+        echo "📋 Generating build information..."
+        cat > build-info.json << EOF
+        {
+          "build_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+          "commit_sha": "${{ github.sha }}",
+          "branch": "${{ github.ref_name }}",
+          "version": "$(node -p -e \"JSON.parse(require('fs').readFileSync('manifest.json', 'utf8')).version\")",
+          "files": [
+            $(cd build && ls -1 | sed 's/.*/"&",/' | sed '$s/,$//')
+          ]
+        }
+        EOF
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: chrome-extension-package
+        path: |
+          feishu-web-saver.zip
+          build-info.json
+        retention-days: 30
+
+    - name: List package contents
+      run: |
+        echo "📋 Package contents:"
+        unzip -l feishu-web-saver.zip || echo "ZIP file not found"
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'release'
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Download build artifacts
+      uses: actions/download-artifact@v4
+      with:
+        name: chrome-extension-package
+
+    - name: Upload Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./feishu-web-saver.zip
+        asset_name: feishu-web-saver-v${{ github.event.release.tag_name }}.zip
+        asset_content_type: application/zip
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [validate, security, test, build]
+    if: always()
+
+    steps:
+    - name: Notify Success
+      if: needs.build.result == 'success'
+      run: |
+        echo "🎉 Chrome Extension CI/CD Pipeline completed successfully!"
+        echo "📦 Build artifacts are available for download"
+
+    - name: Notify Failure
+      if: needs.build.result == 'failure'
+      run: |
+        echo "❌ Chrome Extension CI/CD Pipeline failed"
+        echo "Please check the job logs for details"

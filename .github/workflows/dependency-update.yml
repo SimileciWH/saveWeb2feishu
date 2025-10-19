@@ -1,0 +1,184 @@
+name: Update Dependencies
+
+on:
+  schedule:
+    # 每周一早上8点运行
+    - cron: '0 8 * * 1'
+  workflow_dispatch:
+
+jobs:
+  update-dependencies:
+    name: Check for Updates
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Check for security updates
+      run: |
+        echo "🔒 Checking for security updates..."
+
+        # 创建临时package.json进行安全检查
+        npm init -y
+        npm audit --audit-level high > security-report.txt 2>&1 || true
+
+        if grep -q "High severity vulnerabilities" security-report.txt; then
+          echo "⚠️  High severity vulnerabilities found"
+          cat security-report.txt
+        else
+          echo "✅ No high severity vulnerabilities found"
+        fi
+
+    - name: Check Chrome Extension API updates
+      run: |
+        echo "🔍 Checking Chrome Extension API updates..."
+
+        # 检查manifest.json是否使用了过时的API
+        if [ -f "manifest.json" ]; then
+          echo "📋 Current manifest version:"
+          node -e "
+          const manifest = JSON.parse(require('fs').readFileSync('manifest.json', 'utf8'));
+          console.log('Manifest version:', manifest.manifest_version);
+          console.log('Permissions:', manifest.permissions || []);
+
+          // 检查是否使用了已弃用的权限
+          const deprecatedPermissions = ['unlimitedStorage', 'background'];
+          const foundDeprecated = manifest.permissions?.filter(p => deprecatedPermissions.includes(p));
+          if (foundDeprecated && foundDeprecated.length > 0) {
+            console.log('⚠️  Deprecated permissions found:', foundDeprecated);
+          }
+          "
+        fi
+
+    - name: Create Pull Request if updates available
+      if: contains(github.event.head_commit.message, 'skip-updates') == false
+      run: |
+        echo "📝 Creating update report..."
+
+        # 创建更新报告
+        cat > update-report.md << EOF
+        # 自动更新报告
+
+        **生成时间**: $(date -u +%Y-%m-%dT%H:%M:%SZ)
+        **Commit**: ${{ github.sha }}
+
+        ## 安全更新检查
+        EOF
+
+        if [ -f "security-report.txt" ]; then
+          echo "### 安全扫描结果" >> update-report.md
+          echo "\`\`\`" >> update-report.md
+          cat security-report.txt >> update-report.md
+          echo "\`\`\`" >> update-report.md
+        fi
+
+        echo "### 建议操作" >> update-report.md
+        echo "- [ ] 检查并更新依赖项" >> update-report.md
+        echo "- [ ] 检查Chrome Extension API变更" >> update-report.md
+        echo "- [ ] 测试扩展功能" >> update-report.md
+
+    - name: Upload update report
+      uses: actions/upload-artifact@v4
+      with:
+        name: update-report
+        path: update-report.md
+        retention-days: 7
+
+  test-compatibility:
+    name: Test Browser Compatibility
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Test Chrome compatibility
+      run: |
+        echo "🌐 Testing Chrome compatibility..."
+
+        # 检查manifest.json兼容性
+        if [ -f "manifest.json" ]; then
+          echo "📋 Checking Manifest V3 compatibility..."
+
+          node -e "
+          const manifest = JSON.parse(require('fs').readFileSync('manifest.json', 'utf8'));
+
+          // 检查Manifest V3要求
+          if (manifest.manifest_version !== 3) {
+            console.error('❌ Manifest V3 is required');
+            process.exit(1);
+          }
+
+          if (!manifest.action) {
+            console.error('❌ Action field is required in Manifest V3');
+            process.exit(1);
+          }
+
+          // 检查是否使用了已弃用的API
+          const deprecatedAPIs = [
+            'chrome.extension.getBackgroundPage',
+            'chrome.extension.onMessage',
+            'chrome.extension.connect'
+          ];
+
+          let foundDeprecated = false;
+          const jsFiles = ['popup.js', 'content.js', 'feishu-api.js', 'storage.js'];
+
+          jsFiles.forEach(file => {
+            if (require('fs').existsSync(file)) {
+              const content = require('fs').readFileSync(file, 'utf8');
+              deprecatedAPIs.forEach(api => {
+                if (content.includes(api)) {
+                  console.warn('⚠️  Deprecated API found in', file, ':', api);
+                  foundDeprecated = true;
+                }
+              });
+            }
+          });
+
+          console.log('✅ Chrome compatibility check completed');
+          "
+        fi
+
+    - name: Check API usage
+      run: |
+        echo "🔍 Checking API usage patterns..."
+
+        # 检查是否正确使用了Chrome Extension APIs
+        js_files=(popup.js content.js feishu-api.js storage.js)
+
+        for file in "${js_files[@]}"; do
+          if [ -f "$file" ]; then
+            echo "📝 Checking $file..."
+
+            # 检查常见的API使用模式
+            if grep -q "chrome.storage" "$file"; then
+              echo "   ✅ Uses Chrome Storage API"
+            fi
+
+            if grep -q "chrome.tabs" "$file"; then
+              echo "   ✅ Uses Chrome Tabs API"
+            fi
+
+            if grep -q "fetch(" "$file"; then
+              echo "   ✅ Uses Fetch API (good for Manifest V3)"
+            fi
+
+            if grep -q "XMLHttpRequest" "$file"; then
+              echo "   ⚠️  Uses XMLHttpRequest (consider using fetch)"
+            fi
+          fi
+        done
